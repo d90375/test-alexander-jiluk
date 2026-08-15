@@ -107,8 +107,11 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
     // A browser WebSocket always fires close after error, so this covers both.
     sock.onclose = () => {
-      if (disposed) return;
-      if (ws === sock) ws = null;
+      // A socket replaced by a newer one still fires close: without the
+      // identity check it would flip a live connection to "offline" and
+      // start a second reconnect loop.
+      if (disposed || ws !== sock) return;
+      ws = null;
       set((s) => ({
         connection: "offline",
         // Unconfirmed sends go back to the queue: the server may not have got
@@ -164,6 +167,12 @@ export const useChatStore = create<ChatStore>((set, get) => {
     retryNow: () => {
       if (disposed) return;
       if (ws && ws.readyState <= WebSocket.OPEN) return;
+      // Socket still CLOSING: drop it before opening the next one, otherwise
+      // it lingers with no owner.
+      if (ws) {
+        closeSocket(ws);
+        ws = null;
+      }
       if (reconnectTimer) clearTimeout(reconnectTimer);
       attempt = 0;
       openSocket();
